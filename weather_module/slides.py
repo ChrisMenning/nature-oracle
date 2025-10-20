@@ -1,0 +1,106 @@
+# weather_module/slides.py
+import requests
+from datetime import datetime, timezone
+from .config import OWM_API_KEY
+from . import logic
+from timezone_config import LOCAL_TZ  # Global timezone
+from ascii_presenter import AsciiPresenter
+
+# Initialize presenter (32x12 characters by default)
+presenter = AsciiPresenter()
+
+
+def get_weather(lat, lon):
+    """Fetch current weather and storms from OpenWeatherMap in local timezone."""
+    try:
+        # Current weather
+        current_url = (
+            f"https://api.openweathermap.org/data/2.5/weather?"
+            f"lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=imperial"
+        )
+        current_data = requests.get(current_url, timeout=10).json()
+
+        temp = current_data["main"]["temp"]
+        feels = current_data["main"]["feels_like"]
+        desc = current_data["weather"][0]["description"].capitalize()
+
+        # Convert sunrise/sunset to LOCAL_TZ
+        sunrise_local = datetime.fromtimestamp(current_data["sys"]["sunrise"], tz=timezone.utc).astimezone(LOCAL_TZ)
+        sunset_local  = datetime.fromtimestamp(current_data["sys"]["sunset"], tz=timezone.utc).astimezone(LOCAL_TZ)
+        daylight_hours = (sunset_local - sunrise_local).seconds / 3600
+
+        # Forecast for storms
+        forecast_url = (
+            f"https://api.openweathermap.org/data/2.5/forecast?"
+            f"lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=imperial"
+        )
+        forecast_data = requests.get(forecast_url, timeout=10).json()
+
+        storms = []
+        for item in forecast_data.get("list", []):
+            weather_desc = item["weather"][0]["description"].lower()
+            if "storm" in weather_desc or "thunder" in weather_desc:
+                dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc).astimezone(LOCAL_TZ)
+                storms.append(f"{dt:%a %I:%M %p}: {weather_desc.capitalize()}")
+
+        return {
+            "current": f"{desc}, {temp:.1f}°F (feels like {feels:.1f}°F)",
+            "sunrise_local": sunrise_local.strftime("%I:%M %p %Z"),
+            "sunset_local": sunset_local.strftime("%I:%M %p %Z"),
+            "daylight_hours": round(daylight_hours, 2),
+            "storms": storms
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def get_weather_slides(lat, lon):
+    """Return a list of weather slides framed with ASCII boxes in the specified order."""
+    slides = []
+
+    # Fetch weather
+    weather_data = get_weather(lat, lon)
+    if "error" in weather_data:
+        slides.extend(presenter.make_text_slide("WEATHER ERROR", weather_data["error"]))
+        return slides
+
+    # 1. Weather slide
+    slides.extend(presenter.make_text_slide("WEATHER", weather_data["current"]))
+
+    # 2. Storm slides immediately after weather
+    if weather_data["storms"]:
+        slides.extend(presenter.make_text_slide("STORM", "Storms forecasted:"))
+        for s in weather_data["storms"]:
+            slides.extend(presenter.make_text_slide("STORM", f"- {s}"))
+    else:
+        slides.extend(presenter.make_text_slide("STORM", "No storms forecasted!"))
+
+    # 3. Combined Season + Astronomical Event slide
+    today = datetime.now(LOCAL_TZ).date()
+    season, start, end, next_event = logic.season_dates(today)
+    percent = logic.season_progress(start, end, today)
+    days_until = (end - today).days
+
+    season_event_text = (
+        f"{season}\n{presenter._progress_bar(percent)}\n"
+        f"Next astronomical event: {next_event} in {days_until} days"
+    )
+    slides.extend(presenter.make_text_slide("SEASON & EVENT", season_event_text))
+
+    # 4. Daylight slide
+    daylight_text = (
+        f"Daylight hours: {weather_data['daylight_hours']} hrs\n"
+        f"Sunrise: {weather_data['sunrise_local']}\n"
+        f"Sunset:  {weather_data['sunset_local']}"
+    )
+    slides.extend(presenter.make_text_slide("DAYLIGHT", daylight_text))
+
+    return slides
+
+
+# For quick debugging
+if __name__ == "__main__":
+    LAT, LON = 44.5161, -88.0903
+    for s in get_weather_slides(LAT, LON):
+        print(s["content"] if s.get("type") == "text" else s)

@@ -1,0 +1,8 @@
+# .gitignore
+# Ignore the runtime config with API keys
+weather_module/config.py
+neo_module/config.py
+meditation_module/config.py
+climate_cache.json
+climate_last_fetch.txt
+space_cache.json

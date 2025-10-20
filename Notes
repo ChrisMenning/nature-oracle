@@ -1,0 +1,1 @@
+rsync -avz --exclude '__pycache__' --exclude '.git' ~/Documents/nature-oracle/ mcmudgeon@nature-oracle.local:/home/mcmudgeon/nature-oracle/
