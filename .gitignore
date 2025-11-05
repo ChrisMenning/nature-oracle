@@ -6,3 +6,4 @@ meditation_module/config.py
 climate_cache.json
 climate_last_fetch.txt
 space_cache.json
+space_last_fetch.txt
