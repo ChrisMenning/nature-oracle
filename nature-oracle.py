@@ -41,16 +41,22 @@ font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
 def get_current_location():
     try:
         r = requests.get("https://ipinfo.io/json", timeout=5)
-        loc = r.json().get("loc")
+        data = r.json()
+        loc = data.get("loc")
         if loc:
             lat, lon = map(float, loc.split(","))
-            return lat, lon
+        else:
+            lat, lon = 44.5161, -88.0903
+        city = data.get("city", "Unknown City")
+        region = data.get("region", "Unknown State")
+        return lat, lon, city, region
     except Exception as e:
         print(f"Could not determine location: {e}")
-    return 44.5161, -88.0903
+        return 44.5161, -88.0903, "Unknown City", "Unknown State"
 
-latitude, longitude = get_current_location()
-print(f"Using location: {latitude}, {longitude}")
+# === INITIALIZE LOCATION DATA ===
+latitude, longitude, city, region = get_current_location()
+print(f"Using location: {city}, {region} ({latitude}, {longitude})")
 
 # === SAFE WRAPPER ===
 def safe_slide(func):
@@ -66,11 +72,22 @@ def safe_slide(func):
 def welcome_slide():
     return [{"type": "text", "content": "Welcome"}]
 
+def location_slide():
+    from datetime import datetime
+    now = datetime.now()
+
+    line1 = f"{city}, {region}, Earth"
+    line2 = f"{now.day} {now.strftime('%B')} {now.year},"
+    line3 = f"Anthropocene Epoch"
+
+    return [{"type": "text", "content": f"{line1}\n{line2}\n{line3}"}]
+
 # Weather slide wrapped in a lambda to pass lat/lon
 weather_slide_func = lambda: get_weather_slides(latitude, longitude)
 
 slide_functions = [
      safe_slide(welcome_slide),
+     safe_slide(location_slide),
      safe_slide(weather_slide_func),        # Unified weather + season + event slides
      safe_slide(get_neo_slides),
      safe_slide(get_climate_slides),
