@@ -11,9 +11,9 @@ presenter = AsciiPresenter()
 
 
 def get_weather(lat, lon):
-    """Fetch current weather and storms from OpenWeatherMap in local timezone."""
+    """Fetch current weather and short-term forecast from OpenWeatherMap."""
     try:
-        # Current weather
+        # --- Current weather ---
         current_url = (
             f"https://api.openweathermap.org/data/2.5/weather?"
             f"lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=imperial"
@@ -22,33 +22,46 @@ def get_weather(lat, lon):
 
         temp = current_data["main"]["temp"]
         feels = current_data["main"]["feels_like"]
+        humidity = current_data["main"]["humidity"]
+        pressure = current_data["main"]["pressure"]
+        wind_speed = current_data["wind"]["speed"]
+        wind_dir = current_data["wind"].get("deg", 0)
         desc = current_data["weather"][0]["description"].capitalize()
 
         # Convert sunrise/sunset to LOCAL_TZ
-        sunrise_local = datetime.fromtimestamp(current_data["sys"]["sunrise"], tz=timezone.utc).astimezone(LOCAL_TZ)
-        sunset_local  = datetime.fromtimestamp(current_data["sys"]["sunset"], tz=timezone.utc).astimezone(LOCAL_TZ)
+        sunrise_local = datetime.fromtimestamp(
+            current_data["sys"]["sunrise"], tz=timezone.utc
+        ).astimezone(LOCAL_TZ)
+        sunset_local = datetime.fromtimestamp(
+            current_data["sys"]["sunset"], tz=timezone.utc
+        ).astimezone(LOCAL_TZ)
         daylight_hours = (sunset_local - sunrise_local).seconds / 3600
 
-        # Forecast for storms
+        # --- Forecast (next few entries, ~3-hour intervals) ---
         forecast_url = (
             f"https://api.openweathermap.org/data/2.5/forecast?"
             f"lat={lat}&lon={lon}&appid={OWM_API_KEY}&units=imperial"
         )
         forecast_data = requests.get(forecast_url, timeout=10).json()
 
-        storms = []
-        for item in forecast_data.get("list", []):
-            weather_desc = item["weather"][0]["description"].lower()
-            if "storm" in weather_desc or "thunder" in weather_desc:
-                dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc).astimezone(LOCAL_TZ)
-                storms.append(f"{dt:%a %I:%M %p}: {weather_desc.capitalize()}")
+        forecast_summaries = []
+        for item in forecast_data.get("list", [])[:4]:  # next ~12 hours
+            dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc).astimezone(LOCAL_TZ)
+            w = item["weather"][0]["description"].capitalize()
+            t = item["main"]["temp"]
+            ws = item["wind"]["speed"]
+            forecast_summaries.append(f"{dt:%a %I:%M %p}: {w}, {t:.0f}°F, wind {ws:.0f} mph")
 
         return {
-            "current": f"{desc}, {temp:.1f}°F (feels like {feels:.1f}°F)",
+            "current": (
+                f"{desc}, {temp:.1f}°F (feels {feels:.1f}°F)\n"
+                f"Humidity {humidity}%  Pressure {pressure} hPa\n"
+                f"Wind {wind_speed:.1f} mph @ {wind_dir}°"
+            ),
+            "forecast": forecast_summaries,
             "sunrise_local": sunrise_local.strftime("%I:%M %p %Z"),
             "sunset_local": sunset_local.strftime("%I:%M %p %Z"),
             "daylight_hours": round(daylight_hours, 2),
-            "storms": storms
         }
 
     except Exception as e:
@@ -65,18 +78,17 @@ def get_weather_slides(lat, lon):
         slides.extend(presenter.make_text_slide("WEATHER ERROR", weather_data["error"]))
         return slides
 
-    # 1. Weather slide
+    # --- 1. Current conditions ---
     slides.extend(presenter.make_text_slide("WEATHER", weather_data["current"]))
 
-    # 2. Storm slides immediately after weather
-    if weather_data["storms"]:
-        slides.extend(presenter.make_text_slide("STORM", "Storms forecasted:"))
-        for s in weather_data["storms"]:
-            slides.extend(presenter.make_text_slide("STORM", f"- {s}"))
+    # --- 2. Forecast details (replaces storm slides) ---
+    if weather_data.get("forecast"):
+        for entry in weather_data["forecast"]:
+            slides.extend(presenter.make_text_slide("FORECAST", entry))
     else:
-        slides.extend(presenter.make_text_slide("STORM", "No storms forecasted!"))
+        slides.extend(presenter.make_text_slide("FORECAST", "No forecast data available."))
 
-    # 3. Combined Season + Astronomical Event slide
+    # --- 3. Season + Astronomical Event (unchanged) ---
     today = datetime.now(LOCAL_TZ).date()
     season, start, end, next_event = logic.season_dates(today)
     percent = logic.season_progress(start, end, today)
@@ -88,7 +100,7 @@ def get_weather_slides(lat, lon):
     )
     slides.extend(presenter.make_text_slide("SEASON & EVENT", season_event_text))
 
-    # 4. Daylight slide
+    # --- 4. Daylight info ---
     daylight_text = (
         f"Daylight hours: {weather_data['daylight_hours']} hrs\n"
         f"Sunrise: {weather_data['sunrise_local']}\n"
