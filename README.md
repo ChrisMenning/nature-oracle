@@ -1,6 +1,3 @@
-<img width="768" height="1024" alt="image" src="https://github.com/user-attachments/assets/8fe96961-3098-4c05-9ccd-16bbb9b60349" />
-<img width="768" height="1024" alt="image" src="https://github.com/user-attachments/assets/2cb7d15a-4c19-4ab6-882b-3bbfb7a60f75" />
-
 # Nature Oracle
 A daily briefing for a passive info display.
 
@@ -23,3 +20,6 @@ The Nature Oracle program consists of a slideshow, akin to a PowerPoint presenta
 1. Sign up for free API Keys with Open Weather and NASA.
 2. Add them to secrets.py (see secrets_template.py to see an example)
 3. run nature-oracle.py using python
+
+<img width="768" height="1024" alt="image" src="https://github.com/user-attachments/assets/8fe96961-3098-4c05-9ccd-16bbb9b60349" />
+<img width="768" height="1024" alt="image" src="https://github.com/user-attachments/assets/2cb7d15a-4c19-4ab6-882b-3bbfb7a60f75" />
