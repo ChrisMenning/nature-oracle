@@ -1,11 +1,10 @@
 # weather_module/slides.py
 import requests
 from datetime import datetime, timezone
-from .config import OWM_API_KEY
 from . import logic
 from timezone_config import LOCAL_TZ  # Global timezone
 from ascii_presenter import AsciiPresenter
-
+from secrets import OWM_API_KEY
 # Initialize presenter (32x12 characters by default)
 presenter = AsciiPresenter()
 

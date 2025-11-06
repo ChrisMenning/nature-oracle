@@ -1,6 +1,6 @@
 import requests
 from datetime import datetime, timedelta
-from .config import NASA_API_KEY
+from secrets import NASA_API_KEY
 
 def fetch_neo_data():
     start_date = datetime.now().strftime("%Y-%m-%d")
