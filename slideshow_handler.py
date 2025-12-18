@@ -1,3 +1,28 @@
+from PIL import ImageFilter
+import numpy as np
+def apply_crt_effect(img):
+    """Apply a simple CRT effect: scanlines, slight blur, and vignette."""
+    # Convert to numpy array for pixel manipulation
+    arr = np.array(img)
+    # Add scanlines: darken every other row
+    arr[1::2, :, :] = (arr[1::2, :, :] * 0.7).astype(np.uint8)
+    # Convert back to image
+    img = Image.fromarray(arr)
+    # Slight blur for color bleed
+    img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+    # Add vignette
+    w, h = img.size
+    vignette = Image.new('L', (w, h), 0)
+    for y in range(h):
+        for x in range(w):
+            # Distance from center
+            dx = (x - w/2) / (w/2)
+            dy = (y - h/2) / (h/2)
+            d = (dx*dx + dy*dy) ** 0.5
+            # Vignette strength: 0 at center, up to 120 at corners
+            vignette.putpixel((x, y), int(min(120, d*180)))
+    img = Image.composite(img, Image.new('RGB', (w, h), 'black'), vignette)
+    return img
 import time
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
@@ -117,6 +142,7 @@ class SlideshowHandler:
         img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
         draw = ImageDraw.Draw(img)
         draw.multiline_text((10, 10), text, font=self.font, fill=(255, 191, 0))
+        img = apply_crt_effect(img)
         self.disp.display(img)
 
         # Split into lines
@@ -167,6 +193,7 @@ class SlideshowHandler:
         if img is None:
             img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
 
+        img = apply_crt_effect(img)
         self.disp.display(img)
         self._wait_interruptible(self.image_display_time)
 
