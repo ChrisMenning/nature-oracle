@@ -1,34 +1,113 @@
 from PIL import ImageFilter
 import numpy as np
-def apply_crt_effect(img):
-    """Apply a simple CRT effect: scanlines, slight blur, and vignette."""
-    # Convert to numpy array for pixel manipulation
-    arr = np.array(img)
-    # Add scanlines: darken every other row
-    arr[1::2, :, :] = (arr[1::2, :, :] * 0.7).astype(np.uint8)
-    # Convert back to image
-    img = Image.fromarray(arr)
-    # Slight blur for color bleed
-    img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
-    # Add vignette
-    w, h = img.size
-    vignette = Image.new('L', (w, h), 0)
-    for y in range(h):
-        for x in range(w):
-            # Distance from center
-            dx = (x - w/2) / (w/2)
-            dy = (y - h/2) / (h/2)
-            d = (dx*dx + dy*dy) ** 0.5
-            # Vignette strength: 0 at center, up to 120 at corners
-            vignette.putpixel((x, y), int(min(120, d*180)))
-    img = Image.composite(img, Image.new('RGB', (w, h), 'black'), vignette)
-    return img
 import time
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
 import threading
 import re
+# ---------------- CONFIG ----------------
+
+PHOSPHOR_COLOR = np.array([120, 255, 140], dtype=np.float32)  # green
+SCANLINE_STRENGTH = 0.95
+GLOW_STRENGTH_1 = 0.8
+GLOW_STRENGTH_2 = 0.4
+PERSISTENCE_DECAY = 0.15
+CURVATURE_STRENGTH = 0.001  # set to 0 to disable curvature
+
+# ----------------------------------------
+
+class PhosphorPersistence:
+    def __init__(self, decay=0.65, floor=0.15):
+        self.prev = None
+        self.decay = decay
+        self.floor = floor
+
+    def apply(self, img):
+        arr = np.asarray(img).astype(np.float32)
+
+        if self.prev is None:
+            self.prev = arr
+            return img
+
+        # Weighted blend instead of max()
+        blended = arr + (self.prev * self.decay)
+
+        # Clamp ghosting to a low floor so it never dominates
+        blended = np.maximum(arr, blended * self.floor)
+
+        self.prev = blended
+        return Image.fromarray(np.clip(blended, 0, 255).astype(np.uint8))
+
+
+phosphor_buffer = PhosphorPersistence()
+
+
+def barrel_distort(img, strength=CURVATURE_STRENGTH):
+    if strength <= 0:
+        return img
+
+    w, h = img.size
+    src = np.asarray(img)
+    dst = np.zeros_like(src)
+
+    cx, cy = w / 2, h / 2
+
+    for y in range(h):
+        for x in range(w):
+            nx = (x - cx) / cx
+            ny = (y - cy) / cy
+            r2 = nx * nx + ny * ny
+
+            # BARREL distortion (bulge outward)
+            factor = 1 + strength * r2
+
+            sx = int(cx + nx * cx * factor)
+            sy = int(cy + ny * cy * factor)
+
+            sx = max(0, min(w - 1, sx))
+            sy = max(0, min(h - 1, sy))
+            dst[y, x] = src[sy, sx]
+
+    return Image.fromarray(dst)
+
+
+def terminal_beam_glow(img):
+    arr = np.asarray(img).astype(np.float32)
+
+    # luminance (text mask)
+    lum = arr.mean(axis=2) / 255.0
+
+    glow = np.zeros_like(lum)
+
+    # horizontal beam spread
+    glow[:, 1:]  += lum[:, :-1] * GLOW_STRENGTH_1
+    glow[:, :-1] += lum[:, 1:]  * GLOW_STRENGTH_1
+    glow[:, 2:]  += lum[:, :-2] * GLOW_STRENGTH_2
+    glow[:, :-2] += lum[:, 2:]  * GLOW_STRENGTH_2
+
+    glow = np.clip(glow, 0, 1)
+
+    color_glow = PHOSPHOR_COLOR[None, None, :] * glow[:, :, None]
+
+    out = np.maximum(arr, color_glow)
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+
+
+def terminal_scanlines(img):
+    arr = np.asarray(img).astype(np.float32)
+    arr[1::2] *= SCANLINE_STRENGTH
+    return Image.fromarray(arr.astype(np.uint8))
+
+
+# ---------------- MAIN EFFECT ----------------
+
+def apply_terminal_crt(img):
+    img = terminal_beam_glow(img)
+    img = terminal_scanlines(img)
+    img = phosphor_buffer.apply(img)
+    img = barrel_distort(img)
+    return img
 
 def fetch_and_fit_image(url, target_width=320, target_height=240):
     """Fetch an image from URL and resize/crop to fit target resolution without distortion."""
@@ -142,7 +221,7 @@ class SlideshowHandler:
         img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
         draw = ImageDraw.Draw(img)
         draw.multiline_text((10, 10), text, font=self.font, fill=(255, 191, 0))
-        img = apply_crt_effect(img)
+        img = apply_terminal_crt(img)
         self.disp.display(img)
 
         # Split into lines
@@ -193,7 +272,7 @@ class SlideshowHandler:
         if img is None:
             img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
 
-        img = apply_crt_effect(img)
+        img = apply_terminal_crt(img)
         self.disp.display(img)
         self._wait_interruptible(self.image_display_time)
 
