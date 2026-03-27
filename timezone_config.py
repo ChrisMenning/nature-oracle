@@ -1,19 +1,13 @@
 # timezone_config.py
 from zoneinfo import ZoneInfo
-import requests
 
-def get_local_timezone():
-    """
-    Determine local timezone based on IP.
-    Falls back to UTC if detection fails.
-    """
+LOCAL_TZ = ZoneInfo("UTC")
+
+def init_timezone(tz_name: str):
+    """Set LOCAL_TZ from a timezone name string (e.g. 'America/Chicago').
+    Call once at startup after location is resolved."""
+    global LOCAL_TZ
     try:
-        res = requests.get("http://ip-api.com/json/", timeout=5)
-        data = res.json()
-        tz_name = data.get("timezone", "UTC")
-        return ZoneInfo(tz_name)
+        LOCAL_TZ = ZoneInfo(tz_name)
     except Exception:
-        return ZoneInfo("UTC")
-
-# Initialize a global tz object
-LOCAL_TZ = get_local_timezone()
+        LOCAL_TZ = ZoneInfo("UTC")

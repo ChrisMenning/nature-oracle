@@ -1,5 +1,6 @@
 from datetime import datetime
 from .config import METEOR_IMAGE_PATH
+from ascii_presenter import wrap_text_into_slides
 
 def get_time_until(approach_time_str):
     try:
@@ -36,24 +37,6 @@ def get_sorted_asteroids(data):
     non_hazardous = sorted([a for a in asteroids if not a["hazardous"]], key=lambda x: x["distance_km"])
     return hazardous, non_hazardous
 
-def wrap_text_into_slides(text, max_chars=35, max_lines_per_slide=8):
-    paragraphs = text.split("\n")
-    wrapped_lines = []
-    for para in paragraphs:
-        words, current_line, current_len = para.split(), [], 0
-        for word in words:
-            if current_len + len(word) + (1 if current_line else 0) > max_chars:
-                wrapped_lines.append(" ".join(current_line))
-                current_line, current_len = [word], len(word)
-            else:
-                current_line.append(word)
-                current_len += len(word) + (1 if current_line else 0)
-        if current_line: wrapped_lines.append(" ".join(current_line))
-        if not para.strip(): wrapped_lines.append("")
-    slides = []
-    for i in range(0, len(wrapped_lines), max_lines_per_slide):
-        slides.append("\n".join(wrapped_lines[i:i + max_lines_per_slide]))
-    return slides
 
 def get_donki_slides(data):
     events = data.get("donki", {})

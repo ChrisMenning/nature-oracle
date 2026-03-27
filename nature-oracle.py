@@ -14,6 +14,9 @@ from weather_module import get_weather_slides
 from meditation_module import get_meditation_slides
 from neo_module import get_neo_slides
 from climate_module import get_climate_slides
+from moon_module import get_moon_slides
+from earthquake_module import get_earthquake_slides
+from timezone_config import init_timezone
 
 # === CONFIGURATION ===
 SCREEN_WIDTH, SCREEN_HEIGHT = 320, 240
@@ -49,14 +52,16 @@ def get_current_location():
             lat, lon = 44.5161, -88.0903
         city = data.get("city", "Unknown City")
         region = data.get("region", "Unknown State")
-        return lat, lon, city, region
+        tz_name = data.get("timezone", "UTC")
+        return lat, lon, city, region, tz_name
     except Exception as e:
         print(f"Could not determine location: {e}")
-        return 44.5161, -88.0903, "Unknown City", "Unknown State"
+        return 44.5161, -88.0903, "Unknown City", "Unknown State", "UTC"
 
 # === INITIALIZE LOCATION DATA ===
-latitude, longitude, city, region = get_current_location()
+latitude, longitude, city, region, tz_name = get_current_location()
 print(f"Using location: {city}, {region} ({latitude}, {longitude})")
+init_timezone(tz_name)
 
 # === SAFE WRAPPER ===
 def safe_slide(func):
@@ -88,12 +93,13 @@ weather_slide_func = lambda: get_weather_slides(latitude, longitude)
 slide_functions = [
      safe_slide(welcome_slide),
      safe_slide(location_slide),
-     safe_slide(weather_slide_func),        # Unified weather + season + event slides
+     safe_slide(weather_slide_func),        # Weather + AQI + NWS alerts + season + daylight
      safe_slide(get_neo_slides),
      safe_slide(get_climate_slides),
      safe_slide(get_meditation_slides),
-     safe_slide(lambda: get_inaturalist_slides(latitude, longitude))
-
+     safe_slide(lambda: get_inaturalist_slides(latitude, longitude)),
+     safe_slide(get_moon_slides),
+     safe_slide(lambda: get_earthquake_slides(latitude, longitude)),
 ]
 
 # === SLIDESHOW HANDLER ===
@@ -113,6 +119,7 @@ encoder = RotaryEncoder()
 encoder.on_rotate = lambda direction: slideshow.next_slide(triggered_by_encoder=True) \
     if direction == 'CLOCKWISE' else slideshow.prev_slide(triggered_by_encoder=True)
 encoder.on_button = lambda: slideshow.restart_slideshow()
+encoder.on_long_press = lambda: slideshow.toggle_pause()
 encoder.start()
 
 # === RUN SLIDESHOW IN THREAD ===

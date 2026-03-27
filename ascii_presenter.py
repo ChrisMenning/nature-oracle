@@ -62,3 +62,27 @@ class AsciiPresenter:
         body_lines = self._wrap(label) + ["", self._progress_bar(percent)]
         framed = self._box(title, body_lines)
         return [{"type": "text", "content": "\n".join(framed)}]
+
+
+def wrap_text_into_slides(text, max_chars=35, max_lines_per_slide=8):
+    """Shared utility: wrap text and split into slide-sized string chunks."""
+    paragraphs = text.split("\n")
+    wrapped_lines = []
+    for para in paragraphs:
+        words = para.split()
+        current_line, current_len = [], 0
+        for word in words:
+            if current_len + len(word) + (1 if current_line else 0) > max_chars:
+                wrapped_lines.append(" ".join(current_line))
+                current_line, current_len = [word], len(word)
+            else:
+                current_line.append(word)
+                current_len += len(word) + (1 if current_line else 0)
+        if current_line:
+            wrapped_lines.append(" ".join(current_line))
+        if not para.strip():
+            wrapped_lines.append("")
+    slides = []
+    for i in range(0, len(wrapped_lines), max_lines_per_slide):
+        slides.append("\n".join(wrapped_lines[i:i + max_lines_per_slide]))
+    return slides

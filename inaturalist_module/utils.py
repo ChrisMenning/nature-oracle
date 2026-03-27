@@ -1,15 +1,34 @@
+import os
+import json
 import requests
 from datetime import datetime
 from collections import defaultdict
 from .config import ICONIC_PRIORITY
 
-# Taxon cache
+_TAXON_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "taxon_cache.json")
+
+# Load taxon cache from disk on module start
 taxon_cache = {}
+try:
+    with open(_TAXON_CACHE_FILE) as _f:
+        taxon_cache = json.load(_f)
+except Exception:
+    pass
+
+
+def _save_taxon_cache():
+    try:
+        with open(_TAXON_CACHE_FILE, "w") as f:
+            json.dump(taxon_cache, f)
+    except Exception:
+        pass
 
 def get_taxon_names(taxon_id):
     """Fetch scientific name and common names for a taxon from iNaturalist"""
-    if taxon_id in taxon_cache:
-        return taxon_cache[taxon_id]
+    key = str(taxon_id)
+    if key in taxon_cache:
+        entry = taxon_cache[key]
+        return entry[0], entry[1]
     taxon_url = f"https://api.inaturalist.org/v1/taxa/{taxon_id}"
     try:
         r = requests.get(taxon_url, timeout=10)
@@ -22,11 +41,13 @@ def get_taxon_names(taxon_id):
             preferred_common = taxon.get("preferred_common_name")
             if preferred_common and preferred_common not in common_names:
                 common_names.insert(0, preferred_common)
-            taxon_cache[taxon_id] = (sci_name, common_names)
+            taxon_cache[key] = [sci_name, common_names]
+            _save_taxon_cache()
             return sci_name, common_names
     except Exception:
         pass
-    taxon_cache[taxon_id] = ("Unknown", [])
+    taxon_cache[key] = ["Unknown", []]
+    _save_taxon_cache()
     return "Unknown", []
 
 def wrap_text_into_slides(text, max_chars=30, max_lines_per_slide=8):

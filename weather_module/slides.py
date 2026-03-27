@@ -2,9 +2,9 @@
 import requests
 from datetime import datetime, timezone
 from . import logic
-from timezone_config import LOCAL_TZ  # Global timezone
+import timezone_config
 from ascii_presenter import AsciiPresenter
-from secrets import OWM_API_KEY
+from api_keys import OWM_API_KEY
 # Initialize presenter (32x12 characters by default)
 presenter = AsciiPresenter()
 
@@ -27,13 +27,13 @@ def get_weather(lat, lon):
         wind_dir = current_data["wind"].get("deg", 0)
         desc = current_data["weather"][0]["description"].capitalize()
 
-        # Convert sunrise/sunset to LOCAL_TZ
+        # Convert sunrise/sunset to timezone_config.LOCAL_TZ
         sunrise_local = datetime.fromtimestamp(
             current_data["sys"]["sunrise"], tz=timezone.utc
-        ).astimezone(LOCAL_TZ)
+        ).astimezone(timezone_config.LOCAL_TZ)
         sunset_local = datetime.fromtimestamp(
             current_data["sys"]["sunset"], tz=timezone.utc
-        ).astimezone(LOCAL_TZ)
+        ).astimezone(timezone_config.LOCAL_TZ)
         daylight_hours = (sunset_local - sunrise_local).seconds / 3600
 
         # --- Forecast (next few entries, ~3-hour intervals) ---
@@ -45,7 +45,7 @@ def get_weather(lat, lon):
 
         forecast_summaries = []
         for item in forecast_data.get("list", [])[:4]:  # next ~12 hours
-            dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc).astimezone(LOCAL_TZ)
+            dt = datetime.fromtimestamp(item["dt"], tz=timezone.utc).astimezone(timezone_config.LOCAL_TZ)
             w = item["weather"][0]["description"].capitalize()
             t = item["main"]["temp"]
             ws = item["wind"]["speed"]
@@ -67,9 +67,56 @@ def get_weather(lat, lon):
         return {"error": str(e)}
 
 
-def get_weather_slides(lat, lon):
+def get_aqi(lat, lon):
+    """Fetch Air Quality Index from the OpenWeatherMap Air Pollution API."""
+    try:
+        url = (
+            f"http://api.openweathermap.org/data/2.5/air_pollution?"
+            f"lat={lat}&lon={lon}&appid={OWM_API_KEY}"
+        )
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        entry = r.json()["list"][0]
+        aqi = entry["main"]["aqi"]
+        components = entry["components"]
+        aqi_labels = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
+        return {
+            "aqi": aqi,
+            "label": aqi_labels.get(aqi, "Unknown"),
+            "pm2_5": components.get("pm2_5", 0.0),
+            "pm10":  components.get("pm10",  0.0),
+            "o3":    components.get("o3",    0.0),
+        }
+    except Exception as e:
+        print(f"[weather_module] AQI fetch error: {e}")
+        return None
+
+
+def get_nws_alerts(lat, lon):
+    """Fetch active NWS severe weather alerts. US coverage only; returns [] elsewhere."""
+    try:
+        url = f"https://api.weather.gov/alerts/active?point={lat:.4f},{lon:.4f}"
+        r = requests.get(url, headers={"User-Agent": "nature-oracle/1.0"}, timeout=10)
+        r.raise_for_status()
+        features = r.json().get("features", [])
+        alerts = []
+        for feat in features[:3]:
+            props = feat.get("properties", {})
+            event = props.get("event", "Alert")
+            headline = props.get("headline") or props.get("description", "")
+            headline = headline[:120] if headline else ""
+            alerts.append(f"{event}\n{headline}" if headline else event)
+        return alerts
+    except Exception:
+        return []
+
+(lat, lon):
     """Return a list of weather slides framed with ASCII boxes in the specified order."""
     slides = []
+
+    # --- 0. NWS Severe Weather Alerts (prepended if any active) ---
+    for alert in get_nws_alerts(lat, lon):
+        slides.extend(presenter.make_text_slide("! WEATHER ALERT", alert))
 
     # Fetch weather
     weather_data = get_weather(lat, lon)
@@ -80,15 +127,25 @@ def get_weather_slides(lat, lon):
     # --- 1. Current conditions ---
     slides.extend(presenter.make_text_slide("WEATHER", weather_data["current"]))
 
-    # --- 2. Forecast details (replaces storm slides) ---
+    # --- 2. Air Quality ---
+    aqi_data = get_aqi(lat, lon)
+    if aqi_data:
+        aqi_text = (
+            f"AQI: {aqi_data['aqi']} ({aqi_data['label']})"
+            f"\nPM2.5: {aqi_data['pm2_5']:.1f}  PM10: {aqi_data['pm10']:.1f}"
+            f"\nOzone: {aqi_data['o3']:.1f} ug/m3"
+        )
+        slides.extend(presenter.make_text_slide("AIR QUALITY", aqi_text))
+
+    # --- 3. Forecast details ---
     if weather_data.get("forecast"):
         for entry in weather_data["forecast"]:
             slides.extend(presenter.make_text_slide("FORECAST", entry))
     else:
         slides.extend(presenter.make_text_slide("FORECAST", "No forecast data available."))
 
-    # --- 3. Season + Astronomical Event (unchanged) ---
-    today = datetime.now(LOCAL_TZ).date()
+    # --- 4. Season + Astronomical Event ---
+    today = datetime.now(timezone_config.LOCAL_TZ).date()
     season, start, end, next_event = logic.season_dates(today)
     percent = logic.season_progress(start, end, today)
     days_until = (end - today).days
@@ -99,7 +156,7 @@ def get_weather_slides(lat, lon):
     )
     slides.extend(presenter.make_text_slide("SEASON & EVENT", season_event_text))
 
-    # --- 4. Daylight info ---
+    # --- 5. Daylight info ---
     daylight_text = (
         f"Daylight hours: {weather_data['daylight_hours']} hrs\n"
         f"Sunrise: {weather_data['sunrise_local']}\n"

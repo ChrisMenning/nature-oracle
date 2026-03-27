@@ -15,7 +15,8 @@ class RotaryEncoder:
     """
     def __init__(self, clk_board=11, dt_board=16, sw_board=18,
                  board_to_bcm=None,
-                 button_debounce=0.05, rotary_debounce=0.002, sample_interval=0.001):
+                 button_debounce=0.05, rotary_debounce=0.002, sample_interval=0.001,
+                 long_press_threshold=1.0):
         if board_to_bcm is None:
             board_to_bcm = {11: 17, 16: 23, 18: 24}
 
@@ -34,9 +35,13 @@ class RotaryEncoder:
 
         self.last_clk = lgpio.gpio_read(self._chip, self.CLK)
         self.last_button_time = 0
+        self._long_press_threshold = long_press_threshold
+        self._last_button_state = lgpio.gpio_read(self._chip, self.SW)
+        self._button_press_time = None
 
         self.on_rotate = None  # callback(direction: str: 'CLOCKWISE'/'COUNTERCLOCKWISE')
         self.on_button = None  # callback()
+        self.on_long_press = None  # callback() — fired after holding for long_press_threshold seconds
         self._running = False
         self._thread = None
 
@@ -57,13 +62,26 @@ class RotaryEncoder:
                             self.on_rotate('COUNTERCLOCKWISE')
                 self.last_clk = clk_state
 
-            # Button detection
+            # Button detection (edge-triggered with long-press support)
             button_state = lgpio.gpio_read(self._chip, self.SW)
-            if button_state == 0:  # pressed
-                now = time.time()
-                if (now - self.last_button_time) > self.button_debounce:
-                    if self.on_button:
-                        self.on_button()
+            now = time.time()
+            if button_state != self._last_button_state:
+                time.sleep(self.button_debounce)
+                button_state = lgpio.gpio_read(self._chip, self.SW)
+                if button_state != self._last_button_state:
+                    if button_state == 0:  # falling edge — button pressed
+                        self._button_press_time = now
+                    else:  # rising edge — button released
+                        if self._button_press_time is not None:
+                            held = now - self._button_press_time
+                            if held >= self._long_press_threshold:
+                                if self.on_long_press:
+                                    self.on_long_press()
+                            else:
+                                if self.on_button:
+                                    self.on_button()
+                            self._button_press_time = None
+                    self._last_button_state = button_state
                     self.last_button_time = now
 
             time.sleep(self.sample_interval)

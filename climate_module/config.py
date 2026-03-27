@@ -1,7 +1,9 @@
 # climate_module/config.py
+import os
 
-CACHE_FILE = "climate_cache.json"
-LAST_FETCH_FILE = "climate_last_fetch.txt"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE = os.path.join(BASE_DIR, "climate_cache.json")
+LAST_FETCH_FILE = os.path.join(BASE_DIR, "climate_last_fetch.txt")
 REFRESH_INTERVAL = 3600     # refresh API call every 1h
 API_URL = "https://api.climateclock.world/v2/clock.json"
 

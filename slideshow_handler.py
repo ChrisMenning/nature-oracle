@@ -1,9 +1,13 @@
 import time
+import os
+import json
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import requests
 import threading
 import re
+
+SLIDE_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "slide_cache.json")
 
 def fetch_and_fit_image(url, target_width=320, target_height=240):
     """Fetch an image from URL and resize/crop to fit target resolution without distortion."""
@@ -56,6 +60,8 @@ class SlideshowHandler:
         self.last_refresh = 0
         self.current_index = 0
 
+        self._paused = False
+        self._font_cache = {}
         self._skip_event = threading.Event()
         self._lock = threading.Lock()
 
@@ -77,9 +83,13 @@ class SlideshowHandler:
                     print(f"Slide error: {e}")
             if not slides:
                 slides = [{"type": "text", "content": "No slides available."}]
+        non_error = [s for s in slides if "[ERROR]" not in s.get("content", "")]
+        if non_error:
             self.slides = slides
-            self.last_refresh = now
-            self.current_index = 0
+            self._save_slide_cache()
+        else:
+            cached = self._load_slide_cache()
+            self.slides = cached if cached else slides
         return self.slides
 
     # --- interruptible sleep ---
@@ -112,11 +122,66 @@ class SlideshowHandler:
             self.current_index = 0
             self._skip_event.set()
 
-    # --- display ---
-    def show_text(self, text):
+    def toggle_pause(self):
+        with self._lock:
+            self._paused = not self._paused
+        self._skip_event.set()
+
+    def _show_pause_overlay(self):
         img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
         draw = ImageDraw.Draw(img)
-        draw.multiline_text((10, 10), text, font=self.font, fill=(255, 191, 0))
+        draw.text(
+            (self.screen_width // 4, self.screen_height // 2 - 8),
+            "II  PAUSED", font=self.font, fill=(255, 191, 0)
+        )
+        self.disp.display(img)
+
+    def _get_font(self, size):
+        if size not in self._font_cache:
+            try:
+                self._font_cache[size] = ImageFont.truetype(self.font.path, size)
+            except Exception:
+                self._font_cache[size] = self.font
+        return self._font_cache[size]
+
+    def _save_slide_cache(self):
+        try:
+            cacheable = [
+                s for s in self.slides
+                if isinstance(s, dict)
+                and s.get("type") == "text"
+                and "[ERROR]" not in s.get("content", "")
+            ]
+            if cacheable:
+                with open(SLIDE_CACHE_FILE, "w") as f:
+                    json.dump({"timestamp": time.time(), "slides": cacheable}, f)
+        except Exception as e:
+            print(f"[SlideshowHandler] Cache save failed: {e}")
+
+    def _load_slide_cache(self):
+        try:
+            if os.path.exists(SLIDE_CACHE_FILE):
+                with open(SLIDE_CACHE_FILE) as f:
+                    data = json.load(f)
+                slides = data.get("slides", [])
+                ts = data.get("timestamp", 0)
+                age_h = (time.time() - ts) / 3600
+                if slides:
+                    notice = {
+                        "type": "text",
+                        "content": f"[OFFLINE]\nShowing cached data\nLast updated {age_h:.0f}h ago"
+                    }
+                    return [notice] + slides
+        except Exception as e:
+            print(f"[SlideshowHandler] Cache load failed: {e}")
+        return None
+
+    # --- display ---
+    def show_text(self, text, font_size=None):
+        font = self._get_font(font_size) if font_size else self.font
+        img = Image.new("RGB", (self.screen_width, self.screen_height), "black")
+        draw = ImageDraw.Draw(img)
+        draw.multiline_text((10, 10), text, font=font, fill=(255, 191, 0))
         self.disp.display(img)
 
         # Split into lines
@@ -174,13 +239,22 @@ class SlideshowHandler:
         slides = self.get_slides()
         slide = slides[self.current_index]
         if slide["type"] == "text":
-            self.show_text(slide.get("content", ""))
+            self.show_text(slide.get("content", ""), font_size=slide.get("font_size"))
         elif slide["type"] == "image":
             self.show_image(slide)
 
     # --- main loop ---
     def run(self):
+        _was_paused = False
         while True:
+            if self._paused:
+                if not _was_paused:
+                    self._show_pause_overlay()
+                _was_paused = True
+                self._skip_event.wait(timeout=0.1)
+                self._skip_event.clear()
+                continue
+            _was_paused = False
             self.show_current_slide()
             # Auto-advance only if user hasn't triggered skip
             if not self._skip_event.is_set():
