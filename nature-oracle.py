@@ -115,6 +115,9 @@ encoder.on_rotate = lambda direction: slideshow.next_slide(triggered_by_encoder=
 encoder.on_button = lambda: slideshow.restart_slideshow()
 encoder.start()
 
+# === BOOT SPLASH ===
+slideshow.show_splash(duration=2.5)
+
 # === RUN SLIDESHOW IN THREAD ===
 slideshow_thread = Thread(target=slideshow.run, daemon=True)
 slideshow_thread.start()
@@ -125,3 +128,6 @@ try:
         time.sleep(1)
 except KeyboardInterrupt:
     encoder.stop()
+    # Clear display on exit
+    from PIL import Image
+    slideshow.disp.display(Image.new("RGB", (SCREEN_WIDTH, SCREEN_HEIGHT), "black"))

@@ -4,10 +4,15 @@ from datetime import datetime, timezone
 
 from .config import API_URL, LIFELINE_TOGGLES
 from .utils import load_cache, save_cache, should_fetch, compute_current_value
-from ascii_presenter import AsciiPresenter
+from ascii_presenter import AsciiPresenter, MODULE_BANNERS, MODULE_COLORS
 
 # Use the presenter configured to your requested box size
 presenter = AsciiPresenter()
+
+_DEADLINE_COLOR  = MODULE_COLORS["deadline"]
+_LIFELINE_COLOR  = MODULE_COLORS["lifeline"]
+_DEADLINE_BANNER = MODULE_BANNERS["deadline"]
+_LIFELINE_BANNER = MODULE_BANNERS["lifeline"]
 
 
 def fetch_climate_data():
@@ -21,14 +26,20 @@ def fetch_climate_data():
         return None
 
 
-def format_deadline(timer):
+def format_deadline(timer, show_banner=False):
     """Return framed slides for the main carbon deadline timer."""
     try:
         deadline_str = timer.get("timestamp")
         if not deadline_str:
-            return presenter.make_text_slide("CLIMATE - DEADLINE", "No deadline timestamp available.")
+            return presenter.make_text_slide(
+                "CLIMATE - DEADLINE", "No deadline timestamp available.",
+                color=_DEADLINE_COLOR,
+            )
 
         deadline_dt = datetime.fromisoformat(deadline_str)
+        # Ensure timezone-aware comparison
+        if deadline_dt.tzinfo is None:
+            deadline_dt = deadline_dt.replace(tzinfo=timezone.utc)
         now = datetime.now(timezone.utc)
         delta = deadline_dt - now
 
@@ -37,19 +48,22 @@ def format_deadline(timer):
         rem_days = days % 365
 
         content = f"Carbon Deadline:\n{years} years, {rem_days} days left"
-        return presenter.make_text_slide("CLIMATE - DEADLINE", content)
+        return presenter.make_text_slide(
+            "CLIMATE - DEADLINE", content,
+            color=_DEADLINE_COLOR,
+            banner=_DEADLINE_BANNER if show_banner else None,
+        )
 
     except Exception as e:
         print(f"[climate_module] Deadline error: {e}")
-        return presenter.make_text_slide("CLIMATE - DEADLINE", f"[ERROR] {e}")
+        return presenter.make_text_slide("CLIMATE - DEADLINE", f"[ERROR] {e}",
+                                         color=_DEADLINE_COLOR)
 
 
-def format_lifeline(key, lifeline):
+def format_lifeline(key, lifeline, show_banner=False):
     """
     Format a lifeline 'value' module into framed slides.
-    Inserts a blank line before 'Solution:' if present.
-    Displays an ASCII progress bar **only if unit is '%'**, 
-    and removes the raw percentage from the body when showing the bar.
+    Displays an ASCII progress bar when unit is '%'.
     """
     try:
         labels = lifeline.get("labels", [])
@@ -66,23 +80,28 @@ def format_lifeline(key, lifeline):
 
         # If unit is %, show progress bar instead of raw value
         if unit == "%":
-            body_lines.append(label + ":")  # keep label only
+            body_lines.append(label + ":")
             body_lines.append(presenter._progress_bar(value))
         else:
             body_lines.append(f"{label}: {value} {unit}" if unit else f"{label}: {value}")
 
         # Insert blank line before solution if present
         if solution:
-            body_lines.append("")  # blank line
+            body_lines.append("")
             body_lines.append(solution)
 
         body = "\n".join(body_lines)
         title = f"CLIMATE - {label}"
-        return presenter.make_text_slide(title, body)
+        return presenter.make_text_slide(
+            title, body,
+            color=_LIFELINE_COLOR,
+            banner=_LIFELINE_BANNER if show_banner else None,
+        )
 
     except Exception as e:
         print(f"[climate_module] Lifeline error: {e}")
-        return presenter.make_text_slide("CLIMATE - LIFELINE", f"[ERROR] {e}")
+        return presenter.make_text_slide("CLIMATE - LIFELINE", f"[ERROR] {e}",
+                                         color=_LIFELINE_COLOR)
 
 
 def get_climate_slides():
@@ -109,17 +128,22 @@ def get_climate_slides():
     # -------------------------------------------
 
     # Iterate modules: timers and lifelines only (newsfeed removed)
+    # Show the banner only on the very first slide of each flavour type.
+    first_deadline = True
+    first_lifeline = True
     for key, module in data.items():
         module_type = module.get("type")
         flavor = module.get("flavor")
 
         if module_type == "timer" and flavor == "deadline":
-            slides.extend(format_deadline(module))
+            slides.extend(format_deadline(module, show_banner=first_deadline))
+            first_deadline = False
 
         elif module_type == "value" and flavor == "lifeline":
-            # only include if toggle is True (defaults to True if not in dict)
             if LIFELINE_TOGGLES.get(key, True):
-                slides.extend(format_lifeline(key, module))
+                slides.extend(format_lifeline(key, module,
+                                              show_banner=first_lifeline))
+                first_lifeline = False
 
     return slides
 

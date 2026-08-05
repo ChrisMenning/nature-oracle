@@ -2,17 +2,21 @@
 from .cache import load_cache, save_cache, should_fetch
 from .fetch import fetch_neo_data, fetch_donki_data
 from .formatters import get_sorted_asteroids, format_asteroid_slide, get_donki_slides
-from ascii_presenter import AsciiPresenter
+from ascii_presenter import AsciiPresenter, MODULE_BANNERS, MODULE_COLORS
 
 presenter = AsciiPresenter()
 
+_NEO_COLOR       = MODULE_COLORS["neo"]
+_HAZARD_COLOR    = MODULE_COLORS["hazardous"]
+_NEO_BANNER      = MODULE_BANNERS["neo"]
+_HAZARD_BANNER   = MODULE_BANNERS["hazardous"]
 
-def _convert_text_slide(slide, default_title="NEO"):
+
+def _convert_text_slide(slide, default_title="NEO", color=None, alert=False,
+                        banner=None):
     """
     Convert a slide dict that has type=='text' into one or more ASCII-framed slides
     produced by AsciiPresenter.make_text_slide.
-
-    Uses same heuristic as before for deriving titles.
     """
     content = slide.get("content", "") if isinstance(slide, dict) else str(slide)
     title = slide.get("title") if isinstance(slide, dict) else None
@@ -33,10 +37,12 @@ def _convert_text_slide(slide, default_title="NEO"):
     else:
         body = content
 
-    return presenter.make_text_slide(title, body)
+    return presenter.make_text_slide(title, body, color=color, alert=alert,
+                                     banner=banner)
 
 
-def _emit_slide_list_into(slide_list, out_list, default_title="NEO"):
+def _emit_slide_list_into(slide_list, out_list, default_title="NEO",
+                          color=None, alert=False, banner=None):
     """
     Take slide_list (list of slides from existing formatters)
     and append converted slides into out_list. Text slides are converted using
@@ -44,12 +50,16 @@ def _emit_slide_list_into(slide_list, out_list, default_title="NEO"):
     """
     for s in slide_list:
         if not isinstance(s, dict):
-            out_list.extend(presenter.make_text_slide(default_title, str(s)))
+            out_list.extend(presenter.make_text_slide(default_title, str(s),
+                                                      color=color, alert=alert,
+                                                      banner=banner))
             continue
 
         stype = s.get("type")
         if stype == "text":
-            out_list.extend(_convert_text_slide(s, default_title=default_title))
+            out_list.extend(_convert_text_slide(s, default_title=default_title,
+                                                color=color, alert=alert,
+                                                banner=banner))
         else:
             out_list.append(s)
 
@@ -104,30 +114,47 @@ def get_neo_slides():
 
     # Process hazardous asteroids first; capture meteor image and emit it once later
     if hazardous:
+        first_hazardous = True
         for a in hazardous:
             fmt_slides = format_asteroid_slide(a)
-            # iterate and separate meteor image slides from others
+            asteroid_title = f"Asteroid {a.get('name', '')}"
             for s in fmt_slides:
                 if _is_meteor_image_slide(s):
-                    # store the first meteor slide we encounter and skip emitting it now
                     if deferred_meteor_slide is None:
                         deferred_meteor_slide = s
-                    # if already have one, ignore additional meteor slides
                     continue
-                # emit non-meteor slides normally
+                # Hazardous slides: red-orange color, alert border, banner on first
+                banner = _HAZARD_BANNER if first_hazardous else None
                 if not isinstance(s, dict):
-                    slides.extend(presenter.make_text_slide(f"Asteroid {a.get('name','')}", str(s)))
+                    slides.extend(presenter.make_text_slide(
+                        asteroid_title, str(s),
+                        color=_HAZARD_COLOR, alert=True, banner=banner,
+                    ))
                 elif s.get("type") == "text":
-                    slides.extend(_convert_text_slide(s, default_title=f"Asteroid {a.get('name','')}"))
+                    slides.extend(_convert_text_slide(
+                        s, default_title=asteroid_title,
+                        color=_HAZARD_COLOR, alert=True, banner=banner,
+                    ))
                 else:
                     slides.append(s)
+                first_hazardous = False
     else:
-        slides.extend(presenter.make_text_slide("NEO Monitor", "✅ 0 hazardous asteroids detected."))
+        slides.extend(presenter.make_text_slide(
+            "NEO Monitor", "0 hazardous asteroids detected.",
+            color=_NEO_COLOR, banner=_NEO_BANNER,
+        ))
+        first_neo = True
         for a in non_hazardous[:3]:
             fmt_slides = format_asteroid_slide(a)
-            _emit_slide_list_into(fmt_slides, slides, default_title=f"Asteroid {a.get('name','')}")
+            banner = _NEO_BANNER if first_neo else None
+            _emit_slide_list_into(
+                fmt_slides, slides,
+                default_title=f"Asteroid {a.get('name', '')}",
+                color=_NEO_COLOR, banner=banner,
+            )
+            first_neo = False
 
-    # If we collected a meteor image, emit it now (once), after hazardous slides
+    # Emit the deferred meteor image once, after all hazardous slides
     if deferred_meteor_slide is not None:
         slides.append(deferred_meteor_slide)
 
@@ -137,17 +164,16 @@ def get_neo_slides():
     for s in donki_slides:
         if isinstance(s, dict) and s.get("type") == "text":
             content = s.get("content", "")
-            # replace event titles in the first line of content (or entire content)
             if content.startswith("GST Event"):
                 content = content.replace("GST Event", "Geomagnetic Storm", 1)
             elif content.startswith("FLR Event"):
                 content = content.replace("FLR Event", "Solar Flare", 1)
-            # build a new dict so we don't mutate the original
             s = dict(s)
             s["content"] = content
         normalized_donki.append(s)
 
-    _emit_slide_list_into(normalized_donki, slides, default_title="DONKI")
+    _emit_slide_list_into(normalized_donki, slides, default_title="DONKI",
+                          color=_NEO_COLOR)
 
     return slides
 

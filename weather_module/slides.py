@@ -3,7 +3,7 @@ import requests
 from datetime import datetime, timezone
 from . import logic
 from timezone_config import LOCAL_TZ  # Global timezone
-from ascii_presenter import AsciiPresenter
+from ascii_presenter import AsciiPresenter, MODULE_BANNERS, MODULE_COLORS
 from secrets import OWM_API_KEY
 # Initialize presenter (32x12 characters by default)
 presenter = AsciiPresenter()
@@ -77,17 +77,30 @@ def get_weather_slides(lat, lon):
         slides.extend(presenter.make_text_slide("WEATHER ERROR", weather_data["error"]))
         return slides
 
-    # --- 1. Current conditions ---
-    slides.extend(presenter.make_text_slide("WEATHER", weather_data["current"]))
+    weather_color  = MODULE_COLORS["weather"]
+    forecast_color = MODULE_COLORS["forecast"]
+    season_color   = MODULE_COLORS["season"]
+    daylight_color = MODULE_COLORS["daylight"]
 
-    # --- 2. Forecast details (replaces storm slides) ---
+    # --- 1. Current conditions (with weather banner on first slide) ---
+    slides.extend(presenter.make_text_slide(
+        "WEATHER", weather_data["current"],
+        color=weather_color,
+        banner=MODULE_BANNERS["weather"],
+    ))
+
+    # --- 2. Forecast details ---
     if weather_data.get("forecast"):
         for entry in weather_data["forecast"]:
-            slides.extend(presenter.make_text_slide("FORECAST", entry))
+            slides.extend(presenter.make_text_slide(
+                "FORECAST", entry, color=forecast_color,
+            ))
     else:
-        slides.extend(presenter.make_text_slide("FORECAST", "No forecast data available."))
+        slides.extend(presenter.make_text_slide(
+            "FORECAST", "No forecast data available.", color=forecast_color,
+        ))
 
-    # --- 3. Season + Astronomical Event (unchanged) ---
+    # --- 3. Season + Astronomical Event ---
     today = datetime.now(LOCAL_TZ).date()
     season, start, end, next_event = logic.season_dates(today)
     percent = logic.season_progress(start, end, today)
@@ -95,9 +108,13 @@ def get_weather_slides(lat, lon):
 
     season_event_text = (
         f"{season}\n{presenter._progress_bar(percent)}\n"
-        f"Next astronomical event: {next_event} in {days_until} days"
+        f"Next event: {next_event} in {days_until} days"
     )
-    slides.extend(presenter.make_text_slide("SEASON & EVENT", season_event_text))
+    slides.extend(presenter.make_text_slide(
+        "SEASON & EVENT", season_event_text,
+        color=season_color,
+        banner=MODULE_BANNERS["season"],
+    ))
 
     # --- 4. Daylight info ---
     daylight_text = (
@@ -105,7 +122,11 @@ def get_weather_slides(lat, lon):
         f"Sunrise: {weather_data['sunrise_local']}\n"
         f"Sunset:  {weather_data['sunset_local']}"
     )
-    slides.extend(presenter.make_text_slide("DAYLIGHT", daylight_text))
+    slides.extend(presenter.make_text_slide(
+        "DAYLIGHT", daylight_text,
+        color=daylight_color,
+        banner=MODULE_BANNERS["daylight"],
+    ))
 
     return slides
 
